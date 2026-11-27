@@ -2,36 +2,48 @@ name: Инициализация ASTRA
 on: workflow_dispatch
 permissions:
   contents: write
+concurrency:
+  group: init-astra-main
+  cancel-in-progress: false
 jobs:
   bootstrap:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Подготовить начальный проект и зашифрованный ключ подписи
+      - name: Дополнить исходники из фиксированного снимка и подготовить подпись
         shell: bash
         env:
           SIGNING_PASSWORD: ${{ secrets.ASTRA_SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
           umask 077
-          : "${SIGNING_PASSWORD:?Добавьте секрет ASTRA_SIGNING_PASSWORD в Settings → Secrets and variables → Actions}"
-          test ! -e app && test ! -e keystore || { echo 'Проект уже инициализирован. Запустите Сборка APK ASTRA.'; exit 1; }
+          : "${SIGNING_PASSWORD:?Не задан секрет ASTRA_SIGNING_PASSWORD}"
           tmp=$(mktemp -d)
           trap 'rm -rf "$tmp"' EXIT
           git -C "$tmp" init -q
-          git -C "$tmp" fetch -q --depth=1 https://github.com/Vano3667/scheduler_app.git e5fe36d2d67200144da969332002aa1a36b31b44
-          test "$(git -C "$tmp" rev-parse FETCH_HEAD)" = e5fe36d2d67200144da969332002aa1a36b31b44
-          git -C "$tmp" archive FETCH_HEAD -- app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts | tar xf -
-          sed -i 's/applicationId = "ru.dayplanner.app"/applicationId = "ru.dayplanner.astra"/' app/build.gradle.kts
-          grep -q 'applicationId = "ru.dayplanner.astra"' app/build.gradle.kts
+          rev=e5fe36d2d67200144da969332002aa1a36b31b44
+          git -C "$tmp" fetch -q --depth=1 https://github.com/Vano3667/scheduler_app.git "$rev"
+          test "$(git -C "$tmp" rev-parse FETCH_HEAD)" = "$rev"
+          mkdir "$tmp/base"
+          git -C "$tmp" archive FETCH_HEAD -- app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts | tar -x -C "$tmp/base"
+          sed -i 's/applicationId = "ru.dayplanner.app"/applicationId = "ru.dayplanner.astra"/' "$tmp/base/app/build.gradle.kts"
+          rsync -r --ignore-existing "$tmp/base/" ./
+          chmod +x gradlew
+          grep -Fq 'applicationId = "ru.dayplanner.astra"' app/build.gradle.kts
           mkdir -p keystore
-          keytool -genkeypair -keystore "$tmp/debug.keystore" -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=ASTRA Debug,O=Personal Planner'
-          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --output keystore/debug.keystore.gpg "$tmp/debug.keystore" 3<<<"$SIGNING_PASSWORD"
-          printf '\n/keystore/*.keystore\n' >> .gitignore
+          test ! -e keystore/debug.keystore || { echo 'Обнаружен незашифрованный ключ, останавливаюсь.'; exit 1; }
+          if [ ! -e keystore/debug.keystore.gpg ]; then
+            if [ -n "$(git ls-remote --heads origin main)" ]; then test "$(git ls-remote --heads origin main | cut -f1)" = "$GITHUB_SHA"; fi
+            keytool -genkeypair -keystore "$tmp/debug.keystore" -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=ASTRA Debug,O=Personal Planner'
+            gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --output keystore/debug.keystore.gpg "$tmp/debug.keystore" 3<<<"$SIGNING_PASSWORD"
+          fi
+          grep -Fqx '/keystore/*.keystore' .gitignore || printf '\n/keystore/*.keystore\n' >> .gitignore
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts
           git add -f gradle/wrapper/gradle-wrapper.jar keystore/debug.keystore.gpg
-          git commit -m 'Этапы 1–3: отдельный пакет ASTRA, каркас, Room, экраны дня и фото'
-          git push origin HEAD:main
+          if ! git diff --cached --quiet; then
+            git commit -m 'Завершить перенос этапов 1–3 и подготовить подпись ASTRA'
+            git push origin HEAD:main
+          fi
