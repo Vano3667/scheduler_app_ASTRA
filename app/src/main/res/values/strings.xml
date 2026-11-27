@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Планировщик</string>
+
+    <!-- Общие -->
+    <string name="today">Сегодня</string>
+    <string name="today_suffix">сегодня</string>
+    <string name="back">Назад</string>
+    <string name="close">Закрыть</string>
+    <string name="cancel">Отмена</string>
+    <string name="ok">Готово</string>
+    <string name="save">Сохранить</string>
+    <string name="delete">Удалить</string>
+    <string name="edit">Редактировать</string>
+
+    <!-- Экран дня -->
+    <string name="add_task">Добавить дело</string>
+    <string name="open_calendar">Календарь</string>
+    <string name="open_templates">Типовые дела</string>
+    <string name="open_stats">Статистика</string>
+    <string name="open_settings">Настройки</string>
+    <string name="section_all_day">В течение дня</string>
+    <string name="section_timed">По времени</string>
+    <string name="empty_day_title">На этот день дел нет</string>
+    <string name="empty_day_hint">Нажмите «+», чтобы добавить дело</string>
+    <string name="done_mark">Отметить выполненным</string>
+    <string name="done_unmark">Снять отметку</string>
+    <string name="done_state">Выполнено</string>
+
+    <!-- Календарь -->
+    <string name="prev_month">Предыдущий месяц</string>
+    <string name="next_month">Следующий месяц</string>
+    <string name="calendar_legend">— на этот день есть дела</string>
+    <string-array name="weekdays_short">
+        <item>Пн</item>
+        <item>Вт</item>
+        <item>Ср</item>
+        <item>Чт</item>
+        <item>Пт</item>
+        <item>Сб</item>
+        <item>Вс</item>
+    </string-array>
+
+    <!-- Редактор дела -->
+    <string name="editor_new">Новое дело</string>
+    <string name="editor_edit">Изменение дела</string>
+    <string name="field_title">Название</string>
+    <string name="field_title_error">Введите название</string>
+    <string name="field_description">Описание</string>
+    <string name="time_section">Время</string>
+    <string name="time_none">Без времени</string>
+    <string name="time_at">Время</string>
+    <string name="time_range">Промежуток</string>
+    <string name="time_single">Время</string>
+    <string name="time_start">Начало</string>
+    <string name="time_end">Конец</string>
+    <string name="time_range_error">Конец должен быть позже начала</string>
+    <string name="pick_time">Выберите время</string>
+
+    <!-- Страница дела -->
+    <string name="task_title">Дело</string>
+    <string name="delete_confirm_title">Удалить дело?</string>
+    <string name="delete_confirm_text">Дело «%1$s» будет удалено.</string>
+    <string name="scope_edit_title">Изменить повторяющееся дело</string>
+    <string name="scope_delete_title">Удалить повторяющееся дело</string>
+    <string name="scope_this_day">Только этот день</string>
+    <string name="scope_following">Этот и все следующие</string>
+    <string name="repeat_daily">Каждый день</string>
+    <string name="repeat_on_days">По дням: %1$s</string>
+    <string name="signal_summary">%1$s · %2$s</string>
+    <string name="signal_when_start">Сигнал в начале</string>
+    <string name="signal_when_end">Сигнал в конце</string>
+    <string name="signal_when_both">Сигнал в начале и в конце</string>
+    <string name="signal_type_notification">уведомление</string>
+    <string name="signal_type_alarm">будильник</string>
+
+    <!-- Заглушки и «О приложении» -->
+    <string name="placeholder_title">Скоро появится</string>
+    <string name="placeholder_hint">Этот раздел будет добавлен в одной из следующих сборок</string>
+    <string name="about_title">О приложении</string>
+    <string name="about_version">Версия %1$s</string>
+    <string name="about_privacy">Все данные хранятся только на этом телефоне. Приложение не выходит в интернет.</string>
+</resources>

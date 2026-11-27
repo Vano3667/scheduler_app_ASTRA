@@ -17,3 +17,5 @@ captures/
 
 # ВНИМАНИЕ: keystore/debug.keystore и gradle/wrapper/gradle-wrapper.jar
 # намеренно хранятся в репозитории, не добавляйте их сюда.
+
+/keystore/*.keystore
