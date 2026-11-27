@@ -1,0 +1,34 @@
+name: Однократный перенос этапов 4–8
+on: workflow_dispatch
+permissions:
+  contents: write
+jobs:
+  import:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Применить только проверенные изменения app/src
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e docs/imported-through-8.txt
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          git -C "$tmp" init -q
+          git -C "$tmp" fetch --depth=6 https://github.com/Vano3667/scheduler_app.git b4199de88b3ec7698c1b9998917e6e1fcd13edd7
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          prev=e5fe36d2d67200144da969332002aa1a36b31b44
+          for sha in 72271cdd9afa762f8e117adcd08001d07dc58df3 5d4746de3c57cb3ee6502981287dbbc680d3f5d4 ed94183cd73725a54e7ef7b2e11133c83d01ea96 14c7b2027e40e7a3ce144d235ab01f916fc687da b4199de88b3ec7698c1b9998917e6e1fcd13edd7; do
+            test "$(git -C "$tmp" rev-parse "$sha^1")" = "$prev"
+            git -C "$tmp" diff "$prev" "$sha" -- app/src | git apply --index --whitespace=nowarn
+            git commit -m "ASTRA: $(git -C "$tmp" show -s --format=%s "$sha")"
+            prev="$sha"
+          done
+          grep -Fq 'applicationId = "ru.dayplanner.astra"' app/build.gradle.kts
+          test -f keystore/debug.keystore.gpg && test ! -e keystore/debug.keystore
+          ! grep -Fq 'android.permission.INTERNET' app/src/main/AndroidManifest.xml
+          mkdir -p docs && echo "$prev" > docs/imported-through-8.txt
+          git add docs/imported-through-8.txt && git commit -m 'Зафиксировать источник этапов; Gradle и подпись ASTRA сохранены'
+          git push origin HEAD:main
