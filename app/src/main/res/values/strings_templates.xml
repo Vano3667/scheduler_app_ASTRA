@@ -1,0 +1,4 @@
+<resources>
+<string name="repeat_section">Повтор</string><string name="repeat_no">Не повторять</string><string name="repeat_days">По дням недели</string><string name="repeat_error">Выберите хотя бы один день недели</string>
+<string name="pick_template">Выбрать из типовых</string><string name="save_template">Сохранить как типовое</string><string name="new_template">Новое типовое дело</string><string name="edit_template">Изменить типовое дело</string><string name="no_templates">Типовых дел пока нет</string><string name="templates_hint">Создайте шаблон кнопкой «+» или сохраните обычное дело как типовое.</string><string name="remove_template">Удалить шаблон? Ранее созданные дела сохранятся.</string><string name="template_signals">Настройки сигнала</string>
+</resources>
