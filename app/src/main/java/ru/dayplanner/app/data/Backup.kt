@@ -18,7 +18,7 @@ object Backup {
     private const val META="planner-v1.json"
     private const val META_LIMIT=16L*1024*1024
     private const val TOTAL=1024L*1024*1024
-    private const val FILE_LIMIT=128L*1024*1024
+    private const val FILE_LIMIT=BackupPhotoLimits.MAX_FILE_BYTES
     private const val MAX_ENTRIES=10000
     private const val MAX_ROWS=100000
     private fun row(vararg values:Any?):JSONArray=JSONArray().apply { values.forEach { put(it ?: JSONObject.NULL) } }
@@ -48,7 +48,18 @@ object Backup {
                 val done=decode(obj,"done",2){r->Completion(r.getLong(0),date(r.getLong(1))).also{require(it.taskId in taskIds)}};val skip=decode(obj,"skip",2){r->SkippedDay(r.getLong(0),date(r.getLong(1))).also{require(it.taskId in taskIds)}};require(done.distinct().size==done.size&&skip.distinct().size==skip.size)
                 val refs=decode(obj,"photos",3){r->Triple(r.getLong(0),r.getInt(1),r.getInt(2)).also{require(it.first in taskIds&&it.second in 0 until n&&it.third>=0)}};require(refs.map{it.second}.toSet().size==n);require(refs.distinctBy{it.first to it.second}.size==refs.size)
                 var left=TOTAL-meta.size
-                for(index in 0 until n){ val entry=requireNotNull(z.getEntry(name(index)));require(entry.size in 1..minOf(left,FILE_LIMIT));val f=File(box.photoStore.dir,"p_${UUID.randomUUID()}.jpg");require(f.createNewFile());staged+=f;z.getInputStream(entry).use { input->f.outputStream().use { out->require(copy(input,out,entry.size,entry.crc)==entry.size) } };left-=entry.size }
+                for (index in 0 until n) {
+                    val entry = requireNotNull(z.getEntry(name(index)))
+                    require(entry.size in 1..minOf(left, FILE_LIMIT))
+                    val f = File(box.photoStore.dir, "p_${UUID.randomUUID()}.jpg")
+                    require(f.createNewFile())
+                    staged += f
+                    z.getInputStream(entry).use { input -> f.outputStream().use { out ->
+                        require(copy(input, out, entry.size, entry.crc) == entry.size)
+                    } }
+                    validateBackupPhoto(f)
+                    left -= entry.size
+                }
                 val photos=refs.map{ Photo(taskId=it.first,fileName=staged[it.second].name,position=it.third) };val old=box.db.withTransaction { val names=dao.getAllPhotos().map{it.fileName}.distinct();dao.deleteAllTasks();dao.deleteAllTemplates();dao.insertTasks(tasks);dao.insertTemplates(templates);dao.insertCompletions(done);dao.insertSkippedList(skip);dao.insertPhotos(photos);names };committed=true;box.notifyChanged();old.forEach{box.photoStore.delete(it)}
             };Unit
         } finally { if(!committed) staged.forEach{it.delete()};tmp.delete() }
