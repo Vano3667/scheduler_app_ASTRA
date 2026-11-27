@@ -16,8 +16,10 @@ permissions:
 jobs:
   smoke:
     if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ANDROID_SERIAL: emulator-5554
     steps:
       - uses: actions/checkout@v4
         with:
@@ -45,26 +47,68 @@ jobs:
             download "$PREVIOUS_ID" "$RUNNER_TEMP/previous"
             test "$(cat "$RUNNER_TEMP/previous/number")" -lt "$(cat "$RUNNER_TEMP/app/number")"
           fi
-      - name: Установить и проверить APK на Android 35
+      - name: Подготовить SDK, чистый образ Android 35 и проверить ускорение KVM
         shell: bash
         run: |
           set -euo pipefail
           export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
-          sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
-          echo no | avdmanager create avd -n astra-test -k 'system-images;android-35;google_apis;x86_64' --force >/dev/null
-          sudo chmod a+rw /dev/kvm
-          emulator -avd astra-test -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
-          pid=$!; trap 'kill "$pid" 2>/dev/null || true' EXIT
-          export ANDROID_SERIAL=emulator-5554
-          timeout 300 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r") == 1 ]]; do sleep 2; done'
-          adb shell wm dismiss-keyguard
-          if [[ -s "$RUNNER_TEMP/previous/app-debug.apk" ]]; then
-            adb install "$RUNNER_TEMP/previous/app-debug.apk"
-            python3 .github/scripts/check_ui.py seed
-            adb install -r "$RUNNER_TEMP/app/app-debug.apk"
-          else
-            adb install "$RUNNER_TEMP/app/app-debug.apk"
-            python3 .github/scripts/check_ui.py seed
-          fi
+          printf '%s\n' "$ANDROID_HOME/platform-tools" "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
+          df -h "$RUNNER_TEMP" /mnt
+          test -c /dev/kvm || { echo '::error::В runner нет устройства KVM'; exit 1; }
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
+          sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' > "$RUNNER_TEMP/sdk-install.log" 2>&1 || { tail -40 "$RUNNER_TEMP/sdk-install.log"; exit 1; }
+          emulator -version
+          emulator -accel-check
+          export ANDROID_AVD_HOME="$RUNNER_TEMP/astra-avd"
+          mkdir -p "$ANDROID_AVD_HOME"
+          echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+          avdmanager create avd -n astra-test -k 'system-images;android-35;google_apis;x86_64' --device pixel_2 --force <<< no
+          adb start-server
+      - name: Дождаться загрузки Android и готовности менеджера пакетов
+        shell: bash
+        run: |
+          set -euo pipefail
+          emulator -avd astra-test -port 5554 -accel on -gpu swiftshader -feature -Vulkan -memory 2048 -cores 2 -partition-size 2048 -no-window -no-audio -no-boot-anim -no-snapshot -camera-back none -camera-front none </dev/null > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          pid=$!
+          echo "$pid" > "$RUNNER_TEMP/astra-emu.pid"
+          for ((i=0;i<120;i++)); do
+            if ! kill -0 "$pid" 2>/dev/null; then tail -100 "$RUNNER_TEMP/emulator.log"; echo '::error::Эмулятор завершился до загрузки Android'; exit 1; fi
+            state=$(timeout 3 adb get-state 2>/dev/null || true)
+            boot=''; anim=''
+            if [[ "$state" == device ]]; then
+              boot=$(timeout 3 adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)
+              anim=$(timeout 3 adb shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true)
+              if [[ "$boot" == 1 ]] && timeout 5 adb shell pm path android | grep '^package:' >/dev/null; then
+                echo 'Android готов: ADB online, boot_completed=1, менеджер пакетов доступен'
+                adb shell wm dismiss-keyguard
+                exit 0
+              fi
+            fi
+            if (( i % 6 == 0 )); then echo "Ожидание: ${SECONDS}s adb=$state sys.boot_completed=$boot bootanim=$anim"; fi
+            if (( SECONDS >= 600 )); then break; fi
+            sleep 5
+          done
+          echo '::error::Android не загрузился за отведённое время'
+          tail -100 "$RUNNER_TEMP/emulator.log"; exit 1
+      - name: Установить APK и создать тестовое дело
+        run: |
+          set -eu
+          if [ -s "$RUNNER_TEMP/previous/app-debug.apk" ]; then apk="$RUNNER_TEMP/previous/app-debug.apk"; else apk="$RUNNER_TEMP/app/app-debug.apk"; fi
+          adb install "$apk"
+          python3 .github/scripts/check_ui.py seed
+      - name: Обновить без очистки данных и проверить сохранённое дело
+        run: |
+          set -eu
+          if [ -s "$RUNNER_TEMP/previous/app-debug.apk" ]; then adb install -r "$RUNNER_TEMP/app/app-debug.apk"; fi
           python3 .github/scripts/check_ui.py verify
-          echo 'Проверено: запуск, добавление дела, сохранение в базе и повторное открытие карточки после перезапуска/обновления.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'На Android 35 подтверждены установка, создание дела и открытие сохранённой карточки после перезапуска.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Диагностика на одноразовом эмуляторе при ошибке
+        if: failure()
+        run: |
+          adb devices -l || true
+          tail -80 "$RUNNER_TEMP/emulator.log" || true
+          timeout 8 adb logcat -b crash -d -t 100 || true
+          timeout 8 adb shell dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity' | tail -4 || true
+      - name: Завершить эмулятор
+        if: always()
+        run: timeout 5 adb emu kill >/dev/null 2>&1 || true
