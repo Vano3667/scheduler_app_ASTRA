@@ -3,8 +3,12 @@ on:
   workflow_dispatch:
     inputs:
       build_run:
-        description: ID успешной сборки APK ASTRA
+        description: ID успешной целевой сборки APK ASTRA
         required: true
+        type: string
+      previous_run:
+        description: ID успешной предыдущей сборки для проверки обновления поверх неё
+        required: false
         type: string
 permissions:
   contents: read
@@ -18,19 +22,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Скачать именно опубликованный APK успешной сборки main
+      - name: Скачать опубликованные APK из этого репозитория
         env:
           RUN_ID: ${{ inputs.build_run }}
+          PREVIOUS_ID: ${{ inputs.previous_run }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
-          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/build.json"
-          jq -e '.status=="completed" and .conclusion=="success" and .head_branch=="main" and .path==".github/workflows/build.yml"' "$RUNNER_TEMP/build.json" >/dev/null
-          number=$(jq -r '.run_number' "$RUNNER_TEMP/build.json")
-          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "scheduler-astra-$number" --dir "$RUNNER_TEMP/app"
-          test -s "$RUNNER_TEMP/app/app-debug.apk"
-      - name: Установить APK на чистый Android 35 и открыть основные экраны
+          download() {
+            local id=$1 out=$2
+            [[ "$id" =~ ^[0-9]+$ ]]
+            meta=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id")
+            jq -e '.status=="completed" and .conclusion=="success" and .head_branch=="main" and .path==".github/workflows/build.yml"' <<< "$meta" >/dev/null
+            number=$(jq -r '.run_number' <<< "$meta")
+            echo "Используется APK сборки №$number (run $id)"
+            gh run download "$id" --repo "$GITHUB_REPOSITORY" --name "scheduler-astra-$number" --dir "$out"
+            test -s "$out/app-debug.apk"
+            printf '%s\n' "$number" > "$out/number"
+          }
+          download "$RUN_ID" "$RUNNER_TEMP/app"
+          if [[ -n "$PREVIOUS_ID" ]]; then
+            download "$PREVIOUS_ID" "$RUNNER_TEMP/previous"
+            test "$(cat "$RUNNER_TEMP/previous/number")" -lt "$(cat "$RUNNER_TEMP/app/number")"
+          fi
+      - name: Установить и проверить APK на Android 35
         shell: bash
         run: |
           set -euo pipefail
@@ -42,7 +57,14 @@ jobs:
           pid=$!; trap 'kill "$pid" 2>/dev/null || true' EXIT
           export ANDROID_SERIAL=emulator-5554
           timeout 300 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r") == 1 ]]; do sleep 2; done'
-          adb shell input keyevent 82
-          adb install "$RUNNER_TEMP/app/app-debug.apk"
-          adb shell am start -W -n ru.dayplanner.astra/ru.dayplanner.app.MainActivity
-          python3 .github/scripts/check_ui.py
+          adb shell wm dismiss-keyguard
+          if [[ -s "$RUNNER_TEMP/previous/app-debug.apk" ]]; then
+            adb install "$RUNNER_TEMP/previous/app-debug.apk"
+            python3 .github/scripts/check_ui.py seed
+            adb install -r "$RUNNER_TEMP/app/app-debug.apk"
+          else
+            adb install "$RUNNER_TEMP/app/app-debug.apk"
+            python3 .github/scripts/check_ui.py seed
+          fi
+          python3 .github/scripts/check_ui.py verify
+          echo 'Проверено: запуск, добавление дела, сохранение в базе и повторное открытие карточки после перезапуска/обновления.' >> "$GITHUB_STEP_SUMMARY"
