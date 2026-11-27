@@ -10,6 +10,11 @@ on:
         description: ID успешной предыдущей сборки для проверки обновления поверх неё
         required: false
         type: string
+      check_theme:
+        description: Проверить переключатель темы в целевом APK (для версий с этой настройкой)
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: read
   actions: read
@@ -53,6 +58,9 @@ jobs:
           sudo apt-get -o Acquire::Retries=3 update -qq
           sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends libpulse0 acl
           dpkg-query -W 'libpulse0'
+      - name: Установить Pillow для измерения кадров
+        if: inputs.check_theme
+        run: sudo apt-get -o Acquire::Retries=3 install -y --no-install-recommends python3-pil
       - name: Подготовить SDK, чистый образ Android 35 и проверить ускорение KVM
         shell: bash
         run: |
@@ -106,6 +114,11 @@ jobs:
           if [ -s "$RUNNER_TEMP/previous/app-debug.apk" ]; then adb install -r "$RUNNER_TEMP/app/app-debug.apk"; fi
           python3 .github/scripts/check_ui.py verify
           echo 'На Android 35 подтверждены установка, создание дела и открытие сохранённой карточки после перезапуска.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Проверить выбор темы и яркость реального интерфейса
+        if: inputs.check_theme
+        run: |
+          /usr/bin/python3 .github/scripts/check_ui.py theme
+          echo 'Тёмная и светлая темы, оба стиля, перезапуск и режим «Как в системе» прошли проверку по кадрам Android 35.' >> "$GITHUB_STEP_SUMMARY"
       - name: Диагностика на одноразовом эмуляторе при ошибке
         if: failure()
         run: |
