@@ -1,0 +1,48 @@
+name: Запуск APK на эмуляторе
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: ID успешной сборки APK ASTRA
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Скачать именно опубликованный APK успешной сборки main
+        env:
+          RUN_ID: ${{ inputs.build_run }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]]
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > "$RUNNER_TEMP/build.json"
+          jq -e '.status=="completed" and .conclusion=="success" and .head_branch=="main" and .path==".github/workflows/build.yml"' "$RUNNER_TEMP/build.json" >/dev/null
+          number=$(jq -r '.run_number' "$RUNNER_TEMP/build.json")
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "scheduler-astra-$number" --dir "$RUNNER_TEMP/app"
+          test -s "$RUNNER_TEMP/app/app-debug.apk"
+      - name: Установить APK на чистый Android 35 и открыть основные экраны
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+          sdkmanager 'platform-tools' 'emulator' 'system-images;android-35;google_apis;x86_64' >/dev/null
+          echo no | avdmanager create avd -n astra-test -k 'system-images;android-35;google_apis;x86_64' --force >/dev/null
+          sudo chmod a+rw /dev/kvm
+          emulator -avd astra-test -port 5554 -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          pid=$!; trap 'kill "$pid" 2>/dev/null || true' EXIT
+          export ANDROID_SERIAL=emulator-5554
+          timeout 300 bash -c 'until [[ $(adb shell getprop sys.boot_completed 2>/dev/null | tr -d "\r") == 1 ]]; do sleep 2; done'
+          adb shell input keyevent 82
+          adb install "$RUNNER_TEMP/app/app-debug.apk"
+          adb shell am start -W -n ru.dayplanner.astra/ru.dayplanner.app.MainActivity
+          python3 .github/scripts/check_ui.py
