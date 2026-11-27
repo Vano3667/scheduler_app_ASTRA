@@ -1,0 +1,5 @@
+<!-- Отдельный layoutId: при возврате к SYSTEM лаунчер заново применит исходные XML-цвета. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent">
+    <include android:id="@+id/widget_manual_surface" layout="@layout/widget" />
+</FrameLayout>

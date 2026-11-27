@@ -20,6 +20,7 @@ import ru.dayplanner.app.container
 import ru.dayplanner.app.domain.*
 import ru.dayplanner.app.ui.*
 import ru.dayplanner.app.ui.components.*
+import ru.dayplanner.app.ui.theme.LocalPlannerDark
 import java.time.*
 
 @Composable
@@ -31,7 +32,7 @@ fun StatsScreen(onBack:()->Unit){val today=LocalDate.ofEpochDay(rememberToday())
     }}
 }
 @Composable
-private fun DayBars(stat:PeriodStat){val dark=isSystemInDarkTheme();val planned=if(dark)Color(0xff9b82ff) else Color(0xff7b5cff);val done=if(dark)Color(0xff34c98e) else Color(0xff1a9e6e);val max=stat.days.maxOfOrNull{it.planned}?.coerceAtLeast(1)?:1
+private fun DayBars(stat:PeriodStat){val dark=LocalPlannerDark.current;val planned=if(dark)Color(0xff9b82ff) else Color(0xff7b5cff);val done=if(dark)Color(0xff34c98e) else Color(0xff1a9e6e);val max=stat.days.maxOfOrNull{it.planned}?.coerceAtLeast(1)?:1
     FlowRow(horizontalArrangement=Arrangement.spacedBy(12.dp)){listOf(planned to R.string.stats_planned,done to R.string.stats_done).forEach{(color, label)->Row(verticalAlignment=Alignment.CenterVertically){Spacer(Modifier.size(10.dp).background(color));Spacer(Modifier.width(4.dp));Text(stringResource(label),style=MaterialTheme.typography.labelMedium)}}}
     Text("0 – $max",style=MaterialTheme.typography.labelSmall)
     Row(Modifier.horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(5.dp)){stat.days.forEach{d->val desc=stringResource(R.string.stats_day,Fmt.shortDate(d.day),d.done,d.planned);Column(Modifier.width(30.dp).semantics {contentDescription=desc},horizontalAlignment=Alignment.CenterHorizontally){Row(Modifier.height(100.dp),verticalAlignment=Alignment.Bottom,horizontalArrangement=Arrangement.spacedBy(2.dp)){listOf(planned to d.planned,done to d.done).forEach{(color,count)->Spacer(Modifier.width(10.dp).height((100f*count/max).dp).background(color,RoundedCornerShape(topStart=3.dp,topEnd=3.dp)))}};Text(LocalDate.ofEpochDay(d.day).dayOfMonth.toString(),style=MaterialTheme.typography.labelSmall)} } }

@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Bundle
 import android.text.SpannableString
 import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.text.style.StrikethroughSpan
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
@@ -35,8 +36,18 @@ import ru.dayplanner.app.ui.editor.EditorScreen
 import ru.dayplanner.app.ui.task.TaskScreen
 import ru.dayplanner.app.ui.effects.EffectsHost
 import ru.dayplanner.app.ui.theme.PlannerTheme
+import ru.dayplanner.app.ui.theme.ThemeMode
 import java.time.LocalDate
 import java.time.ZoneId
+
+private data class FixedPalette(val backgroundRes: Int, val text: Int, val accent: Int)
+
+// В режиме SYSTEM не подменяем цвета: лаунчер выбирает values/values-night.
+private fun Context.fixedPalette(mode: ThemeMode): FixedPalette? = when (mode) {
+    ThemeMode.SYSTEM -> null
+    ThemeMode.LIGHT -> FixedPalette(R.drawable.widget_bg_light, getColor(R.color.widget_light_text), getColor(R.color.widget_light_accent))
+    ThemeMode.DARK -> FixedPalette(R.drawable.widget_bg_dark, getColor(R.color.widget_dark_text), getColor(R.color.widget_dark_accent))
+}
 
 object WidgetUpdater {
     private const val MIDNIGHT = "ru.dayplanner.astra.widget.MIDNIGHT"
@@ -53,10 +64,20 @@ object WidgetUpdater {
             if (SignalScheduler.exact(c)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, tick)
             else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, tick)
         } catch (_: SecurityException) { am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, tick) }
+        val mode = c.container.settings.themeMode.value
+        val palette = c.fixedPalette(mode)
         for (id in ids) {
-            val rv = RemoteViews(c.packageName, R.layout.widget)
+            val rv = RemoteViews(c.packageName, if (palette == null) R.layout.widget else R.layout.widget_manual)
+            if (palette != null) {
+                rv.setInt(R.id.widget_manual_surface, "setBackgroundResource", palette.backgroundRes)
+                rv.setTextColor(R.id.header, palette.accent)
+                rv.setTextColor(R.id.add, palette.accent)
+                rv.setTextColor(R.id.empty, palette.text)
+            }
             rv.setTextViewText(R.id.header, Fmt.fullDate(today.toEpochDay()))
-            val adapter = Intent(c, RowsService::class.java).setData(Uri.parse("planner-widget://local/list/$id"))
+            // URI входит в ключ фабрики RemoteViews, extras — нет. Новый режим сбрасывает кэш строк.
+            val listUri = Uri.parse("planner-widget://local/list/$id").buildUpon().appendQueryParameter("theme", mode.name).build()
+            val adapter = Intent(c, RowsService::class.java).setData(listUri)
             rv.setRemoteAdapter(R.id.rows, adapter)
             rv.setEmptyView(R.id.rows, R.id.empty)
             fun entry(action: String, mutable: Boolean = false): PendingIntent {
@@ -79,9 +100,12 @@ class PlannerWidget : AppWidgetProvider() {
     override fun onDisabled(c: Context) { WidgetUpdater.requestUpdate(c) }
 }
 class RowsService : RemoteViewsService() {
-    override fun onGetViewFactory(i: Intent): RemoteViewsFactory = Rows(applicationContext)
+    override fun onGetViewFactory(i: Intent): RemoteViewsFactory {
+        val mode = ThemeMode.fromPreference(i.data?.getQueryParameter("theme"))
+        return Rows(applicationContext, applicationContext.fixedPalette(mode)?.text)
+    }
 }
-private class Rows(private val c: Context) : RemoteViewsService.RemoteViewsFactory {
+private class Rows(private val c: Context, private val fixedText: Int?) : RemoteViewsService.RemoteViewsFactory {
     private var items: List<Occurrence> = emptyList()
     override fun onCreate() {}
     override fun onDestroy() { items = emptyList() }
@@ -94,6 +118,7 @@ private class Rows(private val c: Context) : RemoteViewsService.RemoteViewsFacto
     override fun getViewAt(index: Int): RemoteViews? {
         val o = items.getOrNull(index) ?: return null
         val text = SpannableString(listOf(TimeText.label(o.task), o.task.title).filter { it.isNotEmpty() }.joinToString("  "))
+        fixedText?.let { text.setSpan(ForegroundColorSpan(it), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
         if (o.done) text.setSpan(StrikethroughSpan(), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         return RemoteViews(c.packageName, R.layout.widget_row).apply {
             setTextViewText(R.id.row_text, text)
