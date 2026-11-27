@@ -1,0 +1,19 @@
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Kotlin
+.kotlin/
+
+# ВНИМАНИЕ: keystore/debug.keystore и gradle/wrapper/gradle-wrapper.jar
+# намеренно хранятся в репозитории, не добавляйте их сюда.
