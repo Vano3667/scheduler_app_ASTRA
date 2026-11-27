@@ -1,0 +1,4 @@
+<resources>
+<string name="astra_style">Стиль оформления</string><string name="style_normal">Обычный</string><string name="style_fx">С эффектами</string><string name="all_done">Все дела дня выполнены!</string>
+<string-array name="praise"><item>Ты молодец!</item><item>Так держать!</item><item>Отличная работа!</item><item>Ещё одно дело сделано!</item><item>Есть результат!</item><item>Хороший темп!</item><item>Шаг вперёд!</item><item>Получилось!</item><item>Здорово!</item><item>Готово, можно выдохнуть!</item><item>Отличный шаг!</item><item>Ещё одна победа!</item></string-array>
+</resources>
