@@ -2,7 +2,7 @@ name: Сборка APK ASTRA
 on:
   push:
     branches: [main]
-    paths-ignore: ['**/*.md', '.github/workflows/bootstrap.yml']
+    paths-ignore: ['**/*.md', '.github/workflows/bootstrap.yml', '.github/workflows/smoke.yml', '.github/scripts/check_ui.py']
   workflow_dispatch:
 permissions:
   contents: read
@@ -43,32 +43,18 @@ jobs:
           set -euo pipefail
           test -s "$APK" || { echo 'Не найден выходной файл APK'; exit 1; }
           tools=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -printf '%h\n' | sort -V | tail -1)
-          test -x "$tools/apksigner" && test -r "$tools/lib/apksigner.jar" && test -x "$tools/aapt2" || { echo 'Неполные Android Build Tools'; exit 1; }
+          test -x "$tools/apksigner" && test -r "$tools/lib/apksigner.jar" || { echo 'Неполные Android Build Tools'; exit 1; }
           echo "BUILD_TOOLS=$tools" >> "$GITHUB_ENV"
       - name: Проверить криптографическую подпись APK
         run: '"$BUILD_TOOLS/apksigner" verify --verbose "$APK"'
       - name: Сравнить двоичные сертификаты APK и ASTRA
         run: java -cp "$BUILD_TOOLS/lib/apksigner.jar" .github/scripts/VerifySigner.java "$APK" "$RUNNER_TEMP/astra.der"
-      - name: Проверить идентификатор, SDK и разрешения упакованного манифеста
+      - name: Проверить пакет, SDK и разрешения упакованного манифеста
         shell: bash
         run: |
           set -euo pipefail
-          "$BUILD_TOOLS/aapt2" dump badging "$APK" > "$RUNNER_TEMP/badging.txt"
-          python3 - <<'PY'
-          import re, os, pathlib
-          text=pathlib.Path(os.environ['RUNNER_TEMP'],'badging.txt').read_text()
-          package=re.search(r'^package:\s*(.*)$',text,re.M)
-          attrs=dict(re.findall(r"(\w+)='([^']*)'",package.group(1))) if package else {}
-          assert attrs.get('name')=='ru.dayplanner.astra' and attrs.get('versionCode')==os.environ['GITHUB_RUN_NUMBER'], f'Неверный пакет или версия: {attrs}'
-          for label,expected in [('sdkVersion','29'),('targetSdkVersion','37')]:
-              match=re.search(rf"^{label}:\s*'?(\d+)'?\s*$",text,re.M)
-              assert match and match[1]==expected, f'Не совпало {label}: {match}'
-          perms=set(re.findall(r"^uses-permission[^:]*:\s*name='([^']+)'",text,re.M))
-          assert 'android.permission.RECEIVE_BOOT_COMPLETED' in perms, 'Не удалось прочитать разрешения манифеста'
-          blocked={'android.permission.'+s for s in ['INTERNET','CAMERA','READ_MEDIA_IMAGES','READ_EXTERNAL_STORAGE','WRITE_EXTERNAL_STORAGE']}
-          assert not perms & blocked, f'Лишние разрешения: {perms & blocked}'
-          print('Манифест проверен: ru.dayplanner.astra, minSdk 29, targetSdk 37. Сетевых разрешений нет.')
-          PY
+          "$ANDROID_HOME/cmdline-tools/latest/bin/apkanalyzer" manifest print "$APK" > "$RUNNER_TEMP/astra-manifest.xml"
+          python3 .github/scripts/verify-manifest.py "$RUNNER_TEMP/astra-manifest.xml" "$GITHUB_RUN_NUMBER"
       - name: Проверить отчёты тестов
         run: |
           python3 - <<'PY'
