@@ -3,26 +3,43 @@ on:
   push:
     branches: [main]
     paths-ignore: ['**/*.md', '.github/workflows/bootstrap.yml']
+  workflow_run:
+    workflows: ['Инициализация ASTRA']
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   android:
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.sha }}
           persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Проверить подпись и wrapper
-        run: test -s keystore/debug.keystore && test -s gradle/wrapper/gradle-wrapper.jar
+      - name: Временно восстановить ключ подписи ASTRA
+        shell: bash
+        env:
+          SIGNING_PASSWORD: ${{ secrets.ASTRA_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${SIGNING_PASSWORD:?Не задан секрет ASTRA_SIGNING_PASSWORD}"
+          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --output keystore/debug.keystore --decrypt keystore/debug.keystore.gpg 3<<<"$SIGNING_PASSWORD"
+          test -s gradle/wrapper/gradle-wrapper.jar
       - name: Модульные тесты и APK
         run: ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug
+      - name: Удалить временную копию ключа
+        if: always()
+        run: rm -f keystore/debug.keystore
       - uses: actions/upload-artifact@v4
         with:
           name: scheduler-astra-${{ github.run_number }}

@@ -8,22 +8,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Перенести только каркас, основные экраны и фото; создать собственную подпись
+      - name: Подготовить начальный проект и зашифрованный ключ подписи
         shell: bash
+        env:
+          SIGNING_PASSWORD: ${{ secrets.ASTRA_SIGNING_PASSWORD }}
         run: |
           set -euo pipefail
-          test ! -e app && test ! -e keystore || { echo 'Проект уже инициализирован'; exit 1; }
-          src=$(mktemp -d)
-          git -C "$src" init -q
-          git -C "$src" fetch -q --depth=1 https://github.com/Vano3667/scheduler_app.git e5fe36d2d67200144da969332002aa1a36b31b44
-          test "$(git -C "$src" rev-parse FETCH_HEAD)" = e5fe36d2d67200144da969332002aa1a36b31b44
-          git -C "$src" archive FETCH_HEAD -- app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts | tar xf -
+          umask 077
+          : "${SIGNING_PASSWORD:?Добавьте секрет ASTRA_SIGNING_PASSWORD в Settings → Secrets and variables → Actions}"
+          test ! -e app && test ! -e keystore || { echo 'Проект уже инициализирован. Запустите Сборка APK ASTRA.'; exit 1; }
+          tmp=$(mktemp -d)
+          trap 'rm -rf "$tmp"' EXIT
+          git -C "$tmp" init -q
+          git -C "$tmp" fetch -q --depth=1 https://github.com/Vano3667/scheduler_app.git e5fe36d2d67200144da969332002aa1a36b31b44
+          test "$(git -C "$tmp" rev-parse FETCH_HEAD)" = e5fe36d2d67200144da969332002aa1a36b31b44
+          git -C "$tmp" archive FETCH_HEAD -- app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts | tar xf -
           sed -i 's/applicationId = "ru.dayplanner.app"/applicationId = "ru.dayplanner.astra"/' app/build.gradle.kts
           grep -q 'applicationId = "ru.dayplanner.astra"' app/build.gradle.kts
           mkdir -p keystore
-          keytool -genkeypair -keystore keystore/debug.keystore -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=ASTRA Debug,O=Personal Planner'
+          keytool -genkeypair -keystore "$tmp/debug.keystore" -storetype PKCS12 -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=ASTRA Debug,O=Personal Planner'
+          gpg --batch --yes --pinentry-mode loopback --passphrase-fd 3 --symmetric --cipher-algo AES256 --output keystore/debug.keystore.gpg "$tmp/debug.keystore" 3<<<"$SIGNING_PASSWORD"
+          printf '\n/keystore/*.keystore\n' >> .gitignore
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add --all && git add -f gradle/wrapper/gradle-wrapper.jar keystore/debug.keystore
-          git commit -m 'Этапы 1–3: каркас, Room, экран дня, календарь, фото; собственные пакет и тестовая подпись ASTRA'
+          git add app gradle gradlew gradlew.bat .gitignore AGENT_PROMPT.md build.gradle.kts gradle.properties settings.gradle.kts
+          git add -f gradle/wrapper/gradle-wrapper.jar keystore/debug.keystore.gpg
+          git commit -m 'Этапы 1–3: отдельный пакет ASTRA, каркас, Room, экраны дня и фото'
           git push origin HEAD:main
